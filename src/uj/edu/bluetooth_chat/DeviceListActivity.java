@@ -1,6 +1,7 @@
 package uj.edu.bluetooth_chat;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
@@ -8,6 +9,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,12 +21,25 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class MainActivity extends Activity {
+public class DeviceListActivity extends Activity {
+    public static final int MESSAGE_STATE_CHANGE = 1;
+    public static final int MESSAGE_READ = 2;
+    public static final int MESSAGE_WRITE = 3;
+    public static final int MESSAGE_DEVICE_NAME = 4;
+    public static final int MESSAGE_TOAST = 5;
+
+    public static final String DEVICE_NAME = "BluetoothChat";
+    public static final String TOAST = "toast";
+
     private static final int REQUEST_ENABLE_BT = 198;
+    private static final String TAG = "BluetoothChat";
+
     private BluetoothAdapter mBluetoothAdapter;
     private List<DeviceDescriptor> devices;
     private BroadcastReceiver mReceiver;
     private DeviceListAdapter mDeviceListAdapter;
+
+    private ChatService mChatService;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -31,25 +47,54 @@ public class MainActivity extends Activity {
 
         enableBluetooth();
 
-        setContentView(R.layout.main);
+        setContentView(R.layout.device_list);
 
         ((Button) findViewById(R.id.refreshDeviceList)).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                MainActivity.this.searchForDevices();
+                DeviceListActivity.this.searchForDevices();
             }
         });
 
         mDeviceListAdapter = new DeviceListAdapter(this, R.layout.device_list_item);
         ListView deviceList = (ListView) findViewById(R.id.devices);
         deviceList.setAdapter(mDeviceListAdapter);
+        deviceList.setOnItemClickListener(mDeviceClickListener);
+
+        mChatService = new ChatService(this, mChatHandler);
+        mChatService.start();
 
         showDeviceName();
     }
 
-    @Override
+    private final Handler mChatHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MESSAGE_STATE_CHANGE:
+                    Log.i(TAG, "MESSAGE_STATE_CHANGE: " + msg.arg1);
+
+                    switch (msg.arg1) {
+                        case ChatService.STATE_CONNECTED:
+                            Toast.makeText(DeviceListActivity.this, "connected!", Toast.LENGTH_SHORT).show();
+                            break;
+                        case ChatService.STATE_CONNECTING:
+                            Toast.makeText(DeviceListActivity.this, "connecting...", Toast.LENGTH_SHORT).show();
+                            break;
+                        case ChatService.STATE_LISTEN:
+                        case ChatService.STATE_NONE:
+                            Toast.makeText(DeviceListActivity.this, "not connected", Toast.LENGTH_SHORT).show();
+                            break;
+                    }
+                    break;
+            }
+        }
+    };
+
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        showDeviceName();
+        //if (resultCode == REQUEST_ENABLE_BT) {
+            showDeviceName();
+        // }
     }
 
     @Override
@@ -83,6 +128,8 @@ public class MainActivity extends Activity {
         mBluetoothAdapter.startDiscovery();
 
         devices = new ArrayList<DeviceDescriptor>();
+        mDeviceListAdapter.clear();
+        mDeviceListAdapter.notifyDataSetChanged();
 
         // Create a BroadcastReceiver for ACTION_FOUND
         mReceiver = new BroadcastReceiver() {
@@ -110,6 +157,7 @@ public class MainActivity extends Activity {
                     }
 
                     Boolean isPaired = (pairedDevices.contains(device));
+
                     // Add the name and address to an array adapter to show in a ListView
                     DeviceDescriptor dd = new DeviceDescriptor(device.getName(), device.getAddress(), isPaired);
                     devices.add(dd);
@@ -122,11 +170,6 @@ public class MainActivity extends Activity {
         // Register the BroadcastReceiver
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
         registerReceiver(mReceiver, filter); // Don't forget to unregister during onDestroy
-
-        devices.clear();
-        mDeviceListAdapter.clear();
-        mDeviceListAdapter.addAll(devices);
-        mDeviceListAdapter.notifyDataSetChanged();
     }
 
     private String parseBluetoothState(int state) {
@@ -166,6 +209,17 @@ public class MainActivity extends Activity {
             startActivity(discoverableIntent);
         }
     }
+
+    private AdapterView.OnItemClickListener mDeviceClickListener = new AdapterView.OnItemClickListener() {
+        @Override
+        public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
+            mChatService.stop();
+            String address = devices.get(i).getAddress();
+            Intent intent = new Intent(DeviceListActivity.this, DialogActivity.class);
+            intent.putExtra("target_address", address);
+            startActivity(intent);
+        }
+    };
 
     private class DeviceListAdapter extends ArrayAdapter<DeviceDescriptor> {
         public DeviceListAdapter(Context context, int resource) {
