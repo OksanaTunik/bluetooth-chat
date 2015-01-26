@@ -214,7 +214,12 @@ public class DeviceListActivity extends Activity {
         @Override
         public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
             mChatService.stop();
+
             String address = devices.get(i).getAddress();
+            BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
+
+            mChatService.connect(device);
+
             Intent intent = new Intent(DeviceListActivity.this, DialogActivity.class);
             intent.putExtra("target_address", address);
             startActivity(intent);
